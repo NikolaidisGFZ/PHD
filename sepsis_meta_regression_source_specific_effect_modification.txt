@@ -1,0 +1,105 @@
+Random Effect model. Separate loops for each population.
+Adults and All paediatric patients (young children and neonates lumped)
+3 treatments network
+=============================
+  Treatment codes
+1	Albumin
+2	Placebo
+3 Ivig/Ivigam
+=============================
+  
+  # This model assumes separate effect modification for adults and neonates studies
+  # If a common effect modification is preferred, the easiest way is to remane beta.indir as beta.dir and delete duplicate lines
+  
+  
+  model{                                             # *** PROGRAM STARTS
+    
+    for(i in 1:ns.dir){                      # LOOP THROUGH ADULTS STUDIES
+      
+      w[i,1] <- 0  # adjustment for multi-arm trials is zero for control arm
+      delta[i,1] <- 0          # treatment effect is zero for control arm
+      mu[i] ~ dnorm(0,.0001)   # vague priors for all trial baselines
+      
+      for(k in 1:na[i]) {                   # Loop through arms
+        r[i,k] ~ dbin(p[i,k],n[i,k])             # binomial likelihood
+        logit(p[i,k]) <- mu[i] + delta[i,k]      # model for linear predictor
+        
+       # linear predictor for meta-regression models
+       logit(p[i,k]) <- mu[i] + d.dir[t[i,k]] - d.dir[t[i,1]] + (beta.dir[t[i,k]] -
+                                                                    beta.dir[t[i,1]])*(cov[i] - mx.dir)            
+          
+        rhat[i,k] <- p[i,k] * n[i,k]        # expected value of the numerators
+        dev[i,k] <- 2 * (r[i,k] * (log(r[i,k])-log(rhat[i,k])) +
+                           (n[i,k]-r[i,k])*(log(n[i,k]-r[i,k]) - log(n[i,k]-rhat[i,k])))  # deviance contribution
+      }                    # Arms loop closes
+      
+      for(k in 2:na[i]) {                    # Loop through arms
+        delta[i,k] ~ dnorm(md[i,k],precd[i,k]) # trial-specific LOR distributions
+        md[i,k] <-  d.dir[t[i,k]] - d.dir[t[i,1]] + sw[i,k] # mean of LOR distributions 
+        precd[i,k] <- prec.dir *2*(k-1)/k       # precision of LOR distributions 
+        w[i,k] <- (delta[i,k] - d.dir[t[i,k]] + d.dir[t[i,1]])  # adjustment for multi-arm RCTs
+        sw[i,k] <- sum(w[i,1:k-1])/(k-1)       # cumulative adjustment for multi-arm trials
+      }   # Arms loop closes  
+      resdev[i] <- sum(dev[i,1:na[i]])           # residual deviance for adults studies
+      
+    }                     # ADULTS LOOP CLOSES   
+    
+    d.dir[1]<-0                  # treatment effect is zero for reference treatment
+    for (k in 2:nt){  d.dir[k] ~ dnorm(0,.0001) } # vague priors for treatment effects
+    tau.dir ~ dunif(0,2)                          # vague prior for between-trial SD
+    prec.dir <- pow(tau.dir,-2)   # between-trial precision = (1/between-trial variance)
+    
+   
+      beta.dir[1]<-0                           # covariate effect is zero for reference treatment
+      for(k in 2:nt){   beta.dir[k] <- B.dir    # common covariate effects }
+      B.dir ~ dnorm(0,0.0001)                  # Prior for common regression parameter
+      mx.dir<-mean(cov[])                      # set to 0 for no centering
+      for(k in 2:nt) \{ d.dir.uncent[k]<- d.dir[k] - (beta.dir[k]*mx.dir) \} # Uncentering
+     
+      for(i in ns.dir+1:ns.dir+ns.indir){            # LOOP THROUGH paediatric STUDIES
+        
+        w[i,1] <- 0     # adjustment for multi-arm trials is zero for control arm
+        delta[i,1] <- 0         # treatment effect is zero for control arm
+        mu[i] ~ dnorm(0,.0001)  # vague priors for all trial baselines
+        
+      for (k in 1:na[i]) {            # Loop through arms
+        r[i,k] ~ dbin(p[i,k],n[i,k])          # binomial likelihood
+        logit(p[i,k]) <- mu[i] + delta[i,k]   # model for linear predictor
+          
+        # linear predictor for meta-regression models
+        logit(p[i,k]) <- mu[i] + d.indir[t[i,k]] - d.indir[t[i,1]] + (beta.indir[t[i,k]] -
+                                                                          beta.indir[t[i,1]])*(cov[i] - mx.indir)
+
+        rhat[i,k] <- p[i,k] * n[i,k]
+        dev[i,k] <- 2 * (r[i,k] * (log(r[i,k])-log(rhat[i,k])) +
+                             (n[i,k]-r[i,k])*(log(n[i,k]-r[i,k]) - log(n[i,k]-rhat[i,k])))
+        }       # Arms loop closes  
+        
+      for (k in 2:na[i])      {        # Loop through arms
+        delta[i,k] ~ dnorm(md[i,k],precd[i,k])  # trial-specific LOR distributions
+        md[i,k] <-  d.indir[t[i,k]] - d.indir[t[i,1]] + sw[i,k]    # mean of LOR distributions 
+        precd[i,k] <- prec.indir *2*(k-1)/k      # precision of LOR distributions 
+        w[i,k] <- (delta[i,k] - d.indir[t[i,k]] + d.indir[t[i,1]]) # adjustment for multi-arm RCTs
+        sw[i,k] <- sum(w[i,1:k-1])/(k-1) # cumulative adjustment for multi-arm trials
+        }        # Arms loop closes 
+        
+        resdev[i] <- sum(dev[i,1:na[i]]) # residual deviance for adults studies
+        
+      }            # children LOOP CLOSES  
+      
+      resdev.dir <- sum(resdev[1:ns.dir])                     # Adults-specific residual deviance
+      resdev.indir <- sum(resdev[ns.dir+1:ns.dir+ns.indir]) ])  # paediatric-specific residual deviance
+      totresdev <- sum(resdev[])    # Total residual deviance across all evidence
+
+d.indir[1]<-0                    # treatment effect is zero for reference treatment
+for (k in 2:nt){  d.indir[k] ~ dnorm(0,.0001) } # vague priors for treatment effects
+tau.indir ~ dunif(0,2)           # vague prior for between-trial SD
+prec.indir <- pow(tau.indir,-2)   # between-trial precision = (1/between-trial variance)
+
+  beta.indir[1]<-0             # covariate effect is zero for reference treatment
+  for(k in 2:nt){   beta.indir[k] <- B.indir    # common covariate effects  }
+  B.indir ~ dnorm(0,0.0001)                    # Prior for common regression parameter
+  mx.indir<-mean(cov[])                        # set to 0 for no centering 
+  for(k in 2:nt){ d.indir.uncent[k]<- d.indir[k] - (beta.indir[k]*mx.indir) } # Uncentering
+  
+}           # *** PROGRAM ENDS
